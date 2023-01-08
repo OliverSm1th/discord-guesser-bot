@@ -1,0 +1,25 @@
+{
+  "name": "song_bot",
+  "version": "1.0.0",
+  "description": "A discord bot for guessing song names from clips",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node ./index.js",
+    "deploySlash": "node ./deploy-commands.js"
+  },
+  "author": "Oliver Smith",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/opus": "^0.8.0",
+    "@discordjs/rest": "^1.1.0",
+    "@discordjs/voice": "^0.11.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "discord.js": "^14.3.0",
+    "ffmpeg": "^0.0.4",
+    "ffmpeg-static": "^5.1.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "genius-lyrics": "^4.4.0",
+    "ytdl-core": "^4.11.2"
+  }
+}
