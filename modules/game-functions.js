@@ -88,7 +88,7 @@ module.exports = (client) => {
     const categoryInfo = client.games.get(guildId).categoryInfo
     var category = categoryOrNull
     if(!category){
-      category = client.gameCategories[client.games.get(guildId).categoryInfo.name]
+      category = client.gameCategories[categoryInfo.name]
     }
     const categoryOptions = category.options
     var components = []

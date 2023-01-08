@@ -10,9 +10,6 @@ module.exports = (client) => {
     if(options.removeAccents == undefined || options.removeAccents){
       editedString = editedString.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     }
-    // if(options.removeBrackets == undefined || options.removeBrackets){
-    //   editedString = editedString.replace(/\[|\]|\)|\(|\,|\'/g, '')
-    // }
     if(options.trim == undefined || options.trim){
       editedString = editedString.trim()
     }
