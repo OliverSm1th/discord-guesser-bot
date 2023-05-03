@@ -1,3 +1,9 @@
+module.exports = async (client, interaction) => {
+  if (interaction.isChatInputCommand()) return chatInputCommand(client, interaction);
+  if (interaction.isStringSelectMenu()) return selectMenuCommand(client, interaction)
+  if (interaction.isButton()) return buttonCommand(client, interaction)
+}
+
 
 async function chatInputCommand(client, interaction){
   const command = client.commands.get(interaction.commandName);
@@ -32,7 +38,7 @@ async function selectMenuCommand(client, interaction) {
 }
 
 async function buttonCommand(client, interaction) {
-  if(interaction.customId.endsWith("T") || interaction.customId.endsWith("F")){
+  if(interaction.customId.endsWith("T") || interaction.customId.endsWith("F")){  // Toggle buttons
     var newValue = false
     if(interaction.customId.endsWith("F")){
       newValue = true
@@ -48,13 +54,17 @@ async function buttonCommand(client, interaction) {
 
     await interaction.update({components: components});
   }
-
-  if(interaction.customId == "SetupNext"){
+  if(interaction.customId == "Edit") {
+    client.gameSetupSetAll(interaction.guildId, {});
+    client.gameSetup(interaction);
+  }else if(interaction.customId == "SetupNext"){
     client.gameStatusSet(interaction.guildId, client.gameStatus.PREGAME)
-    await interaction.update({content: client.gameSetupGetArr(interaction.guildId).join('\n'), components: []})
+    await interaction.update({content: client.gameSetupText(interaction.guildId), components: []})
     client.gameChooseCategory(interaction)
-  }
-  else if(interaction.customId.startsWith("catPreset")){
+  } else if(interaction.customId == "catLast") {
+    components = client.gameCategoryComponents(interaction.guildId)
+    await interaction.reply({components: components});
+  } else if(interaction.customId.startsWith("catPreset")){
     category = client.gameCategories[client.games.get(interaction.guildId).categoryInfo.name]
     client.gameCategoryInfoSetMulti(interaction.guildId, category.optionsPresets[interaction.customId.slice(9)].categoryInfo)
     components = client.gameCategoryComponents(interaction.guildId)
@@ -65,15 +75,13 @@ async function buttonCommand(client, interaction) {
     client.gameStartRound(interaction.guildId, interaction.channel)
   }
   else if(interaction.customId == "Close"){
-    interaction.update({components: []})
+    interaction.update({components: []});
+    const game = client.games.get(interaction.guildId)
+    client.leaveVC(game.connection);
+
   }
 
 }
 
 
 
-module.exports = async (client, interaction) => {
-  if (interaction.isChatInputCommand()) return chatInputCommand(client, interaction);
-  if (interaction.isSelectMenu()) return selectMenuCommand(client, interaction)
-  if (interaction.isButton()) return buttonCommand(client, interaction)
-}

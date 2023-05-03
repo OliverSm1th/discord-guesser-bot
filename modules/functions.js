@@ -1,5 +1,5 @@
-const {joinVoiceChannel, createAudioPlayer, createAudioResource} = require('@discordjs/voice')
-const { ActionRowBuilder, SelectMenuBuilder, ButtonBuilder } = require('discord.js');
+const {joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus} = require('@discordjs/voice')
+const { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder } = require('discord.js');
 const ytdl = require('ytdl-core');
 const fluentFfmpeg = require('fluent-ffmpeg')
 fluentFfmpeg.setFfmpegPath(require('@ffmpeg-installer/ffmpeg').path);
@@ -63,7 +63,7 @@ module.exports = (client) => {
         //console.log("Label: "+label+ " | Description: "+description+ " | Value: "+value)
       }
     }
-    var selectMenu = new SelectMenuBuilder()
+    var selectMenu = new StringSelectMenuBuilder()
       .setCustomId(id || "select")
       .setPlaceholder(placeholder || "Nothing selected")
       .addOptions(...new_options)
@@ -75,28 +75,36 @@ module.exports = (client) => {
     }
 
     const row = new ActionRowBuilder().addComponents(selectMenu)
-    //console.log(row.components[0].options)
     return row
   }
 
-  client.buttonComponentRow = (label, id, style, emoji, disabled=false) => {
-    return client.getComponentRow([client.buttonComponent(label, id, style, emoji, disabled)])
-  }
-
-
-  client.buttonComponent = (label, id, style, emoji=null, disabled=false) => {
-    // Styles:
-    // 1- Blue(Primary)  2- Grey(Secondary)  3-Green(Success)  4-Red(Danger) 5-Grey(URL)
-    const button = new ButtonBuilder()
-        .setCustomId(id)
-        .setLabel(label)
-        .setStyle(style)
-        .setDisabled(disabled)
-      if(emoji != null){
-        button.setEmoji(emoji)
+  // client.buttonComponentRow = (label, id, style, emoji, disabled=false) => {
+  //   return client.getComponentRow([client.buttonComponent(label, id, style, emoji, disabled)])
+  // }
+  client.constructRow = (...objs) => {
+    const row = new ActionRowBuilder()
+    for(let obj of objs) {
+      if (typeof obj.construct == 'function') {
+        row.addComponents(obj.construct());
       }
-      return button
+    }
+    return row
   }
+
+
+  // client.buttonComponent = (label, id, style, emoji=null, disabled=false) => {
+  //   // Styles:
+  //   // 1- Blue(Primary)  2- Grey(Secondary)  3-Green(Success)  4-Red(Danger) 5-Grey(URL)
+  //   const button = new ButtonBuilder()
+  //       .setCustomId(id)
+  //       .setLabel(label)
+  //       .setStyle(style)
+  //       .setDisabled(disabled)
+  //     if(emoji != null){
+  //       button.setEmoji(emoji)
+  //     }
+  //     return button
+  // }
 
   client.getComponentRow = (components) => {
     return new ActionRowBuilder().addComponents(...components)
@@ -132,12 +140,19 @@ module.exports = (client) => {
         return null
       }
   }
+  client.leaveVC = async (connection) => {
+    return await connection.disconnect();
+  }
 
   client.getGuild = (guildId) => {return client.guilds.cache.get(guildId); }
   client.getMember = (guildId, userId) => {return client.getGuild(guildId).members.cache.get(userId); }
 
+  let ytRepeats = 0;
+  let ytLastError = "";
+
   client.playYTMusic = (connection, url, seekMs) => {
-    var repeats = 0
+    console.log("Playing YT video");
+    
     var lastError = ""
     var stream = null
 
@@ -147,26 +162,48 @@ module.exports = (client) => {
     const player = createAudioPlayer()
     const resource = createAudioResource(editedStream, {inlineVolume: true})
     connection.subscribe(player)
-    player.on("error", error => {
-      invalidUrlErrors = ["Error: Input stream error: This video is unavailable"]
-      if(invalidUrlErrors.includes(error.toString())){
-        return null
-      }
-      console.log("YT Music Player error: "+error.toString())
+    return new Promise((resolve) => {
+      player.on("error", async error => {
+        let repeatErrors = ["Error: Input stream error: getaddrinfo EAI_AGAIN www.youtube.com"];
+        if(repeatErrors.includes(error.toString()) && repeats < 5) {
+          if(ytLastError == error.toString()) {
+            ytRepeats++;
+          } else {
+            ytRepeats = 1;
+            ytLastError = error.toString()
+          }
+          var finalResult = await client.playYTMusic()
+          resolve(finalResult);
+        } else {
+          console.log("YT Music Player error: "+error.toString())
+          resolve(null);
+        }
+      })
+      player.on(AudioPlayerStatus.Playing, () => {
+        resolve({player: player, resource: resource});
+      })
+      player.play(resource)
     })
-    player.play(resource)
-    
-    return {player: player, resource: resource}
+
   }
   client.playAppleMusic = (connection, url, seekMs) => {
+    console.log("Playing apple music");
     //const stream = ytdl(url, { highWaterMark: 1024 * 1024, filter: "audioonly" })
     const player = createAudioPlayer()
     const editedStream = fluentFfmpeg().input(url).toFormat('mp3')
     const resource = createAudioResource(editedStream, {inlineVolume: true})
     //const resource = createAudioResource(url, {inlineVolume: true})
     connection.subscribe(player)
-    player.play(resource)
-    return {player: player, resource: resource}
+    return new Promise((resolve) => {
+      player.on("error", error => {
+        console.log("Apple Music Player error: "+error.toString())
+        resolve(null);
+      })
+      player.on(AudioPlayerStatus.Playing, () => {
+        resolve({player: player, resource: resource});
+      })
+      player.play(resource)
+    })
   }
   client.playMusic = (connection, urls) => {
     for(let i=0; i<urls.length; i++){
@@ -192,6 +229,8 @@ module.exports = (client) => {
   client.stopMusic = (musicMsc) => {
     if(musicMsc.player != null){
       return musicMsc.player.stop()
+    } else {
+      console.log("Stopping null player");
     }
     return
   }
@@ -207,7 +246,7 @@ module.exports = (client) => {
     return client.stopMusic(musicMisc)
   }
   client.changeVolumeMusic = (musicMisc, newValue) => {
-    if(musicMisc == undefined){return}
+    if(!musicMisc || !musicMisc.resource || !musicMisc.resource.volume){return}
     musicMisc.resource.volume.setVolume(newValue)
   }
 
@@ -225,3 +264,4 @@ module.exports = (client) => {
   }
 
 }
+

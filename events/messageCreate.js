@@ -310,7 +310,29 @@ module.exports = async (client, message) => {
      console.log("saved to ./game-categories.json")
     })
   }
+  // else if (message.content == "fixDisney") {
+  //   const disney = client.gameCategories["disney"]["albums"]
+  //   for(var movieName in disney){
+  //     var album_url = disney[movieName].imageUrl;
+  //     if (/^https:\/\/t2.genius.com\/unsafe/.test(album_url)) {
+  //       var new_url = album_url.replace(/https:\/\/t2.genius.com\/unsafe\/\d+x\d+\/(.*)/, "$1");
+  //       new_url = new_url.replace(/%3A/g, ":");
+  //       new_url = new_url.replace(/%2F/g, "/");
+  //       console.log(new_url);
+  //       disney[movieName].imageUrl = new_url;
+  //     }
+      
+  //   }
+  //   writeToGameCategories(client);
+  // }
 
 
 
+}
+
+function writeToGameCategories(client) {
+  fs.writeFile("./game-categories.json", JSON.stringify(client.gameCategories, null, 2), function writeJSON(err) {
+    if(err) return console.log(err)
+    console.log("saved to ./game-categories.json")
+   })
 }

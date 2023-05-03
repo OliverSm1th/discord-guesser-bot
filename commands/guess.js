@@ -32,7 +32,6 @@ module.exports = {
 					url = game.currentSong.mediaUrl.apple
 				}
 			}
-
 			var artistString = ""
 			if("artistInfo" in game.currentSong){
 				artistString = game.currentSong.artistInfo
@@ -46,27 +45,24 @@ module.exports = {
 				tags.push(game.currentSong.tags[tagName].toLowerCase())
 			}
 			if(tags.length > 0){
-				description += "("+tags.join(", ")+")"
+				description += " **("+tags.join(", ")+")**"
 			}
-			// if(game.currentSong.version != "original"){
-			// 	description += "("+game.currentSong.version+" version)"
-			// }
+
 			var fields = []
 			if(game.currentSong.fact != "null"){
 				var fact = game.currentSong.fact
 				if(fact.length > 200){
-					fact = fact.slice(0, 200)+"[...]("+game.geniusLink+")"
+					fact = fact.slice(0, 200)+"...ㅤ[(more)]("+game.currentSong.geniusLink+")"
 				}
 				description += "\n\n**Fact:** " +fact
-				//fields.push({name: "Fact: ", value: fact})
 			}
 
 			var embed = {
-				title: "✅ Correct",
+				title: "✅ㅤCorrect",
 				description:description,
 				color: 3066993,
 				thumbnail: {url: album.imageUrl},
-				fields: fields
+				fields: fields,
 			}
 			client.playerCorrect(interaction.guildId, interaction.user.id)
 			interaction.reply({embeds: [embed], ephemeral: true})
