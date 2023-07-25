@@ -364,10 +364,10 @@ module.exports = (client) => {
 
     // Play music
     if(songData.youtubeLink != undefined){
-      musicMisc = await client.playYTMusic(game.connection, songData.youtubeLink, 0)
+      musicMisc = await client.playYTMusic(game.connection, songData.youtubeLink, 20)
     }
     if(musicMisc == null && songData.appleLink != undefined){
-      musicMisc = await client.playAppleMusic(game.connection, songData.appleLink, 0)
+      musicMisc = await client.playAppleMusic(game.connection, songData.appleLink)
     } 
     if(musicMisc == null && songData.mediaUrl != undefined){
       musicMisc = client.playMusic(game.connection, [songData.mediaUrl.youtube, songData.mediaUrl.apple])
@@ -414,9 +414,12 @@ module.exports = (client) => {
     if(!hidden){
       embed = {
         title: `🎵\ \ Song ${game.currentRoundNum+1} of ${game.settings.number_of_songs}`,
-        description: "```"+rows.join("\n")+"```\n[Lyrics]("+game.currentSong.geniusLink+")",
+        description: "```"+rows.join("\n")+"```",
         color: 3066993,
         thumbnail: {url: client.gameCategories[game.categoryInfo.name].albums[game.currentSong.albumName].imageUrl}
+      }
+      if(game.currentSong.geniusLink != null) {
+        description += "\n[Lyrics]("+game.currentSong.geniusLink+")"
       }
     }
     return embed

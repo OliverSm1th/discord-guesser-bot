@@ -21,8 +21,7 @@ module.exports = {
 
 		if(guessText == game.currentSongName.replace(/[^a-zA-Z ]/g, '')){
 			const album = client.gameCategories[game.categoryInfo.name].albums[game.currentSong.albumName]
-			//console.log(game.currentSong.albumName)
-			var url = game.currentSong.geniusLink
+			var url = null;
 			if("youtubeLink" in game.currentSong){
 				url = game.currentSong.youtubeLink
 			}else if("mediaUrl" in game.currentSong){
@@ -31,6 +30,8 @@ module.exports = {
 				} else{
 					url = game.currentSong.mediaUrl.apple
 				}
+			}else if("geniusLink" in game.currentSong){
+				url = game.currentSong.geniusLink
 			}
 			var artistString = ""
 			if("artistInfo" in game.currentSong){
@@ -49,10 +50,13 @@ module.exports = {
 			}
 
 			var fields = []
-			if(game.currentSong.fact != "null"){
+			if(game.currentSong.fact != null && game.currentSong.fact != "null"){
 				var fact = game.currentSong.fact
 				if(fact.length > 200){
-					fact = fact.slice(0, 200)+"...ㅤ[(more)]("+game.currentSong.geniusLink+")"
+					fact = fact.slice(0, 200)+"..."
+					if(game.currentSong.geniusLink != null) {
+						fact += "ㅤ[(more)]("+game.currentSong.geniusLink+")"
+					}
 				}
 				description += "\n\n**Fact:** " +fact
 			}

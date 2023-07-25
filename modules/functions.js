@@ -1,12 +1,15 @@
 const {joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus} = require('@discordjs/voice')
 const { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder } = require('discord.js');
 const ytdl = require('ytdl-core');
+const genius = require("genius-lyrics");
 const fluentFfmpeg = require('fluent-ffmpeg')
 fluentFfmpeg.setFfmpegPath(require('@ffmpeg-installer/ffmpeg').path);
 
 const delay = (n) => new Promise( r => setTimeout(r, n));
 
 module.exports = (client) => {
+
+  const geniusClient = new genius.Client(client.config.geniusKey)
 
   client.basicEmbed = (text, type, title, footer) => {
     switch(type){
@@ -78,9 +81,6 @@ module.exports = (client) => {
     return row
   }
 
-  // client.buttonComponentRow = (label, id, style, emoji, disabled=false) => {
-  //   return client.getComponentRow([client.buttonComponent(label, id, style, emoji, disabled)])
-  // }
   client.constructRow = (...objs) => {
     const row = new ActionRowBuilder()
     for(let obj of objs) {
@@ -90,21 +90,6 @@ module.exports = (client) => {
     }
     return row
   }
-
-
-  // client.buttonComponent = (label, id, style, emoji=null, disabled=false) => {
-  //   // Styles:
-  //   // 1- Blue(Primary)  2- Grey(Secondary)  3-Green(Success)  4-Red(Danger) 5-Grey(URL)
-  //   const button = new ButtonBuilder()
-  //       .setCustomId(id)
-  //       .setLabel(label)
-  //       .setStyle(style)
-  //       .setDisabled(disabled)
-  //     if(emoji != null){
-  //       button.setEmoji(emoji)
-  //     }
-  //     return button
-  // }
 
   client.getComponentRow = (components) => {
     return new ActionRowBuilder().addComponents(...components)
@@ -150,18 +135,18 @@ module.exports = (client) => {
   let ytRepeats = 0;
   let ytLastError = "";
 
-  client.playYTMusic = (connection, url, seekMs) => {
+  client.playYTMusic = (connection, url, seekS) => {
     console.log("Playing YT video");
     
     var lastError = ""
     var stream = null
 
-
     stream = ytdl(url, { highWaterMark: 1024 * 1024, filter: "audioonly" })
-    const editedStream = fluentFfmpeg({source: stream}).toFormat('mp3').setStartTime(20)
+    
+    const editedStream = fluentFfmpeg({source: stream}).toFormat('mp3').setStartTime(seekS)
     const player = createAudioPlayer()
     const resource = createAudioResource(editedStream, {inlineVolume: true})
-    connection.subscribe(player)
+    const subscription = connection.subscribe(player)
     return new Promise((resolve) => {
       player.on("error", async error => {
         let repeatErrors = ["Error: Input stream error: getaddrinfo EAI_AGAIN www.youtube.com"];
@@ -176,6 +161,8 @@ module.exports = (client) => {
           resolve(finalResult);
         } else {
           console.log("YT Music Player error: "+error.toString())
+          player.stop()
+          await subscription.unsubscribe()
           resolve(null);
         }
       })
@@ -186,13 +173,11 @@ module.exports = (client) => {
     })
 
   }
-  client.playAppleMusic = (connection, url, seekMs) => {
+  client.playAppleMusic = async (connection, url) => {
     console.log("Playing apple music");
-    //const stream = ytdl(url, { highWaterMark: 1024 * 1024, filter: "audioonly" })
     const player = createAudioPlayer()
     const editedStream = fluentFfmpeg().input(url).toFormat('mp3')
     const resource = createAudioResource(editedStream, {inlineVolume: true})
-    //const resource = createAudioResource(url, {inlineVolume: true})
     connection.subscribe(player)
     return new Promise((resolve) => {
       player.on("error", error => {
@@ -205,19 +190,22 @@ module.exports = (client) => {
       player.play(resource)
     })
   }
-  client.playMusic = (connection, urls) => {
+  client.playMusic = async (connection, urls) => {
     for(let i=0; i<urls.length; i++){
       currentUrl = urls[i]
+      console.log(currentUrl);
       if(currentUrl == undefined){
         continue
       }
       if(currentUrl.startsWith("https://audio-ssl.itunes.apple.com/")){ 
-        response = client.playAppleMusic(connection, currentUrl, 0)
+        console.log("trying apple");
+        response = await client.playAppleMusic(connection, currentUrl)
         if(response != null){
           return response
         }
-      } else if(currentUrl.startsWith("http://www.youtube.com/watch?v=ziG-p9bpIro")){
-        response = client.playYTMusic(connection, currentUrl, 0)
+      } else if(currentUrl.includes("www.youtube.com/watch?v=")){
+        console.log("trying youtube");
+        response = await client.playYTMusic(connection, currentUrl, 20)
         if(response != null){
           return response
         }
@@ -252,15 +240,17 @@ module.exports = (client) => {
 
   client.getLyrics = async (title, artist = " ") => {
     //console.log("Lyrics for "+title)
-    const options = {
-    	apiKey: client.config.geniusKey,
-    	title: title,
-    	artist: artist,
-    	optimizeQuery: true
-    };
+    const searches = await geniusClient.songs.search(title);
+    const firstSong = searches[0];
 
-    return await getLyrics(options)
+    if(normaliseText(firstSong.title) != normaliseText(title)) { return null; }
+    if(artist != " " && normaliseText(firstSong.artist.name) != normaliseText(artist)) { return null; }
 
+    return await firstSong.lyrics();
+  }
+
+  function normaliseText(text) {
+    return text.replace(/[^0-9a-z]/gi, '').toLowerCase();
   }
 
 }

@@ -5,9 +5,6 @@ const Discord = require("discord.js");
 const fs = require("fs");
 const Enmap = require("enmap");
 
-const { generateDependencyReport } = require('@discordjs/voice');
-console.log(generateDependencyReport());
-
 console.log("Packages Loaded")
 
 
