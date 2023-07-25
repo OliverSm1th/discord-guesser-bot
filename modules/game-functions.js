@@ -419,7 +419,7 @@ module.exports = (client) => {
         thumbnail: {url: client.gameCategories[game.categoryInfo.name].albums[game.currentSong.albumName].imageUrl}
       }
       if(game.currentSong.geniusLink != null) {
-        description += "\n[Lyrics]("+game.currentSong.geniusLink+")"
+        embed.description += "\n[Lyrics]("+game.currentSong.geniusLink+")"
       }
     }
     return embed
