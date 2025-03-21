@@ -1,10 +1,10 @@
 const { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, SelectMenuBuilder } = require('discord.js');
 
-function capitaliseFirstLetter(string) {
+function capitalise(string) {
   return string.charAt(0).toUpperCase() + string.slice(1);
 }
 function normaliseSettingText(title){
-  return capitaliseFirstLetter(title.replaceAll('_', ' '))
+  return capitalise(title.replaceAll('_', ' '));
 }
 
 module.exports = (client) => {
@@ -61,10 +61,6 @@ module.exports = (client) => {
   client.gameSetupText = (guildId) => {
     var settingsArr = ["--**Game Settings**--"]
     var settings = client.games.get(guildId).settings;
-    // if(guildId == -1) {
-    //   settingsArr = ["--**Default Settings**--"]
-    //   settings = client.gameDefaultOptions;
-    // }
     var index = 0
     for(var key in settings){
       var value = settings[key]
@@ -85,7 +81,7 @@ module.exports = (client) => {
    }
   client.gameSettingsOrder = ["number_of_songs", "mode", "time_to_guess"]
   client.gameDefaultOptions = {
-    "number_of_songs": 4,
+    "number_of_songs": 10,
     "mode":   "playlist",
     "time_to_guess": 30,
   }
@@ -96,82 +92,107 @@ module.exports = (client) => {
     var game = client.games.get(interaction.guildId)
     if(game.settings.mode != "playlist"){return}
     // Choose Category
-    var component = client.selectComponentRow(Object.keys(client.gameCategories).map(capitaliseFirstLetter), "Category")
+    var component = client.selectComponentRow(Object.keys(client.categories).map(capitalise), "Category")
     interaction.followUp({content: "Select a category", components: [component]})
   }
   client.gameCategoryOptions = async(interaction) => {  // Display options for the specific category
     const categoryName = interaction.values[0].toLowerCase()
-    const category = client.gameCategories[categoryName]
+    const category = client.categories[categoryName]
 
     client.gameCategoryInfoSet(interaction.guildId, "name", categoryName)  // Set name
-    client.gameCategoryInfoSetMulti(interaction.guildId, category.optionsPresets.default.categoryInfo)  // Set default values
-
+    if(category.defaults != null) {                                        // Set default values
+      client.gameCategoryInfoSetMulti(interaction.guildId, category.defaults)
+    } else {
+      client.gameCategoryInfoSetDefault(interaction.guildId, category.tags) 
+    }
+    
+    
 
     const components = client.gameCategoryComponents(interaction.guildId, category)
 
-    interaction.update({content: category.options.content, components: components})
+    interaction.update({content: "Configure which songs are used by album, tags and popularity", components: components})
   }
   client.gameCategoryComponents = (guildId, categoryOrNull, final=false) => {  // Create components with category options
     const categoryInfo = client.games.get(guildId).categoryInfo
     var category = categoryOrNull
     if(!category){
-      category = client.gameCategories[categoryInfo.name]
+      category = client.categories[categoryInfo.name]
     }
-    const categoryOptions = category.options
+    const albumNames = client.albumNames(category);
+    const chosenAlbums = Object.values(categoryInfo.albums).flat(1);
     var rowsArr = []
 
-    // Selects
-    for(var i=0; i<categoryOptions.select.length; i++){
-      const selectData = categoryOptions.select[i]
-      var selectOptions = selectData.options
-
-      var min, max =1
-      if(selectData.multi){
-        min = 0;
-        max = (selectOptions.length == undefined) ? Object.keys(selectOptions).length : selectOptions.length
+    // Selects  (also change in gameCategoryInfoSetAllAlbums)
+    var selectNum = Math.ceil(albumNames.length / 25)
+    var selectSize = Math.ceil(albumNames.length / selectNum)
+    var start = 0; var end = selectSize;
+    for(var i=0; i<selectNum; i++){
+      if(i == selectNum-1) {
+        end = albumNames.length;
       }
+      var selectAlbums = albumNames.slice(start, end)
 
       var optionDefaults = []
-      // Showing previously selected items
-      if(categoryInfo[selectData.id] != null){
-        for(var optionLabel in selectOptions){
-          const optionValue = selectOptions[optionLabel]
-          if(categoryInfo[selectData.id].includes(optionValue)){
-            optionDefaults.push(optionValue)
-          }
+      var selectOptions = {};
+      
+      selectAlbums.forEach((selectAlbumName) =>{
+        const [selectAlbum, isMulti] = client.getCategoryAlbum(category, selectAlbumName, true);
+        if(selectAlbum.songStats == null) {return; }
+        // Showing previously selected items
+        const albumName = selectAlbumName.split("/")[0]
+        if(chosenAlbums.includes(selectAlbumName)){
+          optionDefaults.push(selectAlbumName)
         }
-      }
+
+        // Adding to option
+        var instrumental = selectAlbum.songStats.instrumental.toString();
+        var lyrical = selectAlbum.songStats.lyrical.toString();
+        let description = lyrical+" songs, "+instrumental+" instrumental";
+        if(isMulti) {description = (parseInt(lyrical,10)+parseInt(instrumental,10))+" tracks"}
+        selectOptions[albumName+"- "+description] = selectAlbumName;
+      })
       rowsArr.push(client.constructRow(
         new StringSelect(
-          selectOptions, "Cat"+ selectData.id, 
-          (final) ? optionDefaults.join(", ").substring(0,149) : selectData.placeholder, min, max, 
+          selectOptions, "Cat"+ i, 
+          (final) ? optionDefaults.join(", ").substring(0,149) : " ", 0, Object.keys(selectOptions).length, 
           (final) ? [] : optionDefaults, final
         )
       ))
+      start = end;
+      end += selectSize
     }
 
     // Buttons
     var rows = {}
     var maxNum = 0
-    for(var i=0; i<categoryOptions.button.length; i++){
-      const buttonData = categoryOptions.button[i]
-      var buttonStyle = buttonData.style
-      var buttonId = buttonData.id
-
-      if(buttonData.toggle){
-        var buttonStatus = buttonData.initial
-        if(categoryInfo[buttonId] != null){
-          buttonStatus = categoryInfo[buttonId]
-        }
-        if(buttonStatus){
-          buttonStyle = 3
-          buttonId = "cat" + buttonId + "T"
-        } else{
-          buttonStyle = 2
-          buttonId = "cat" + buttonId + "F"
-        }
+    var buttonsData = {
+      "Most Popular": {"id":"popular", "row": 1},
+      "Include Instrumental": {"id":"instrumental", "row": 1},
+    }
+    if(category.tags != null) {
+      let i = 0;
+      for([tagId, tagInfo] of Object.entries(category.tags)) {
+        let tagName = tagInfo.name ?? capitalise(tagId)
+        buttonsData[tagName] = {"id": tagId, "row":2+Math.floor(i/5)};
+        i++;
       }
-      const button = new Button(buttonData.label, buttonId, buttonStyle, null, final);
+    }
+
+    Object.keys(buttonsData).forEach(buttonLabel => {
+      var buttonData = buttonsData[buttonLabel];
+      var buttonId = buttonData.id
+      var buttonStatus = categoryInfo[buttonId].status ?? false;
+      var buttonDisabled = categoryInfo[buttonId].disabled ?? false;
+
+      if(buttonStatus){
+        buttonStyle = 3
+        buttonId = "cat" + buttonId + "T"
+      } else{
+        buttonStyle = 2
+        buttonId = "cat" + buttonId + "F"
+      }
+
+      const button = new Button(buttonLabel, buttonId, buttonStyle, null, (final || buttonDisabled));
       if(buttonData.row in rows){
         rows[buttonData.row].push(button)
       } 
@@ -179,18 +200,17 @@ module.exports = (client) => {
         rows[buttonData.row] = [button]
         maxNum = Math.max(buttonData.row, maxNum)
       }
-    }
+    })
+
     for(var i=1; i<=maxNum; i++){
       rowsArr.push(client.constructRow(...rows[i.toString()]))
     }
     var finalRow = []
     // Preset buttons
-    for(const presetName in category.optionsPresets){
-      const presetInfo = category.optionsPresets[presetName]
-      finalRow.push(new Button(capitaliseFirstLetter(presetName), "catPreset"+presetName, 2, presetInfo.emoji, final))
-    }
+    finalRow.push(new Button("Default", "catPresetDefault", 2, '⚙️', final))
+    finalRow.push(new Button("All songs", "catPresetAll", 2, '🎵', final))
     // Start button:
-    const currentNum = client.gameFilteredSongNum(guildId)
+    const currentNum = client.gameFilteredSongNum(categoryInfo)
     var suffix = ""
     if(currentNum > 0){
       suffix = ` (${currentNum} songs)`
@@ -208,7 +228,12 @@ module.exports = (client) => {
     if(!game){
       return
     }
-    game.categoryInfo[infoId] = value
+    if(value == true || value == false) {
+      game.categoryInfo[infoId] = {status: value}
+    } else {
+      game.categoryInfo[infoId] = value
+    }
+
     client.games.set(guildId, game)
   }
   client.gameCategoryInfoSetMulti = (guildId, dict) => {
@@ -217,136 +242,197 @@ module.exports = (client) => {
       return
     }
     for(const key in dict){
-      game.categoryInfo[key] = dict[key]
+      let tagInfo = dict[key];
+      if(dict[key] == true || dict[key] == false) {
+        tagInfo = {status: dict[key]};
+      }
+      game.categoryInfo[key] = tagInfo;
     }
     client.games.set(guildId, game)
   }
-  client.gameCategoryFinal = async (interaction) => {  // Display the final category settings  (Unused)
+  client.gameCategoryInfoSetDefault = (guildId, tags) => { // unused
+    let defaultConfig = {
+      albums: {},
+      popular: true,
+      instrumental: false,
+    };
+    if(tags != null) {
+      Object.keys(tags).forEach(tagId => {
+        defaultConfig[tagId] = true;
+      })
+    }
+    client.gameCategoryInfoSetMulti(guildId, defaultConfig)
+  }
+  client.gameCategoryInfoSetAllAlbums = (guildId, albumNames) => {
+    let allConfig = {albums: {}};
+    var selectNum = Math.ceil(albumNames.length / 25);
+    var selectSize = Math.ceil(albumNames.length / selectNum);
+    var start = 0; var end = selectSize;
+    for(var i=0; i<Math.ceil(albumNames.length / 25); i++){
+      if(i == selectNum-1) { end = albumNames.length; }
+      allConfig.albums[i] = albumNames.slice(start, end)
+      start = end;
+      end += selectSize
+    }
+    client.gameCategoryInfoSetMulti(guildId, allConfig)
+  }
+  client.gameCategoryInfoSetAlbum = (guildId, selectName, albums) => {
+    var game = client.games.get(guildId)
+    if(!game){ return }
+    game.categoryInfo.albums[selectName] = albums
+  }
+  client.gameCategoryFinal = async (interaction) => {  // Display the final category settings
     const rows = client.gameCategoryComponents(interaction.guildId, null, true);
-    // const game = client.games.get(interaction.guildId)
-    // const categoryFilter = game.categoryInfo
-    // var rows = ["--**Playlist Settings**--"]
-    // for(const flterName in categoryFilter){
-    //   var value = categoryFilter[flterName]
-
-    //   if(Array.isArray(filterValue)){
-    //     var filterValue = filterValue.join(', ')
-    //   }
-    //   else if(typeof value == "boolean"){
-    //     if(value){filterValue = "✅"}
-    //     else{filterValue = "❌"}
-    //   }
-    //   else{filterValue = value}
-    //   rows.push(capitaliseFirstLetter(flterName) + ": "+ filterValue)
-    // }
     await interaction.update({content: "--**Playlist Settings**--", components: rows});
   }
 
-  client.gameFilteredSongNum = (guildId) => {  // Gets the number of songs after the filter (!)
+  client.gameFilteredSongNum = (categoryInfo) => {  // Gets the number of songs after the filter (!)
+
+    return client.gameFilteredSongs(categoryInfo, [])[0].length;
     var count = 0
 
-    const game = client.games.get(guildId)
-    const categoryFilter = game.categoryInfo
-    const categoryName = game.categoryInfo.name
-    const category = client.gameCategories[categoryName]
-    const allAlbums = category.albums
+    const categoryFilter = categoryInfo
+    const categoryName = categoryInfo.name
+    const category = client.categories[categoryName]
 
-    let filterAlbumNames = [];
-    let filterTags = {};
-    let filterPopularity = 0;
-
-    if(categoryName == "disney"){
-      filterAlbumNames = categoryFilter.films1.concat(categoryFilter.films2)
-      filterTags["version"] = [];
-      if(categoryFilter.original){filterTags["version"].push("original") }
-      if(categoryFilter.remake){filterTags["version"].push("remake"); }
-      if(categoryFilter.broadway){filterTags["version"].push("broadway"); }
-      filterPopularity = 100000;
-    } else if(categoryName == "games") {
-      filterAlbumNames =  categoryFilter.songs1;
-      filterPopularity = 10000;
+    let filterTags = []
+    let ignoreTags = [];  // ignore when not enabled
+    if(category.tags != null) {
+      for([tagId, tagInfo] of Object.entries(category.tags)) {
+        if(!tagId in categoryFilter) {continue;}
+        switch(tagInfo.type) {
+          case null:
+          case undefined:
+          case "and":
+            if (categoryFilter[tagId] == true) {
+              filterTags.push(tagId);
+            }
+            break;
+          case "ignore":
+            if (categoryFilter[tagId] == false) { 
+              ignoreTags.push(tagId);
+            }  else {filterTags.push(tagId);}
+            break;
+          default:
+            console.log("Invalid tag type: "+tagInfo.type+"   ("+tagId+")");
+        }
+      }
     }
+    let filterAlbumNames = Object.values(categoryFilter.albums).flat(1);
+
+    
     for(var albumName of filterAlbumNames){
       if(!(albumName in allAlbums)) {console.log(albumName+" not in albums"); continue;}
       const songs = allAlbums[albumName].songs
-      for(var songName in songs){
-        if(categoryFilter.popular && songs[songName].popularity <= filterPopularity){continue}
-        let validTags = true;
-        for(let [tagName, tagValue] of Object.entries(filterTags)) {
-          if(tagValue == "" || tagValue == []) {continue; }
-          if(Array.isArray(tagValue)){
-            if(tagValue.indexOf(songs[songName].tags[tagName]) == -1) {validTags = false;}
-          } else if(songs[songName].tags[tagName] != tagValue) {validTags = false;}
+      for(var songKey in songs){
+        var currentSong = songs[songKey]
+        if(categoryFilter.popular && currentSong.popularity <= client.config.filterPopularity){continue;}
+
+        if(category.tags != null) {
+          if(currentSong.tags == null && filterTags.length > 0) {continue;}
+          if(currentSong.tags != null && !currentSong.tags.every(tag => filterTags.includes(tag) || ignoreTags.includes(tag))) {continue;}
         }
-        if(validTags){
-          if(songs[songName].instrumental){
-            if(categoryFilter.instrumental){
-              count += 1
-            }
-          } else{
-            count += 1
-          }
-        }
+
+        if(!categoryFilter.instrumental && currentSong.instrumental){ continue; }
+        count += 1
       }
     }
     return count
   }
-  client.gameFilteredSongs = (guildId) => {  // Gets the list of songs after the filter (!)
-    const game = client.games.get(guildId)
-    const categoryFilter = game.categoryInfo
-    const categoryName = game.categoryInfo.name
-    const category = client.gameCategories[categoryName]
-    const categoryAlbums = category.albums
+  client.gameFilteredSongs = (categoryInfo, playedSongs) => {  // Gets the list of songs after the filter (!)
     var songList = []
-    if(categoryName == "disney"){
-      const filmNames = categoryFilter.films1.concat(categoryFilter.films2)
-      var songVersions = []
-      if(categoryFilter.original){songVersions.push("original")}
-      if(categoryFilter.remake){songVersions.push("remake")}
-      if(categoryFilter.broadway){songVersions.push("broadway")}
+    const categoryFilter = categoryInfo
+    const categoryName = categoryInfo.name
+    const category = client.categories[categoryName]
+    const albumNames = client.albumNames(category);
+    let guessAlbum = false; // Whether to guess the song or album name
 
-      for(var filmName of filmNames){
-        const songs = categoryAlbums[filmName].songs
-        for(var songName in songs){
-          if(songVersions.includes(songs[songName].tags.version) && !game.playedSongs.includes(client.stringClean(songs[songName].title))){
-            if(songs[songName].instrumental){
-              if(categoryFilter.instrumental){
-                songList.push(songs[songName])
-              }
-            } else{
-              songList.push(songs[songName])
+    
+    let filterTags = []
+    let ignoreTags = [];  // ignore when not enabled
+    if(category.tags != null) {
+      for([tagId, tagInfo] of Object.entries(category.tags)) {
+        const tagEnabled = categoryFilter[tagId].status ?? false;
+        switch(tagInfo.type) {
+          case null:
+          case undefined:
+          case "and":
+            if (tagEnabled) {
+              filterTags.push(tagId);
             }
-          }
+            break;
+          case "ignore":
+            if (!tagEnabled) { 
+              ignoreTags.push(tagId);
+            } else {filterTags.push(tagId);}
+            break;
+          case "":
+            break;
         }
-      }
-      if(categoryFilter.popular){
-        songList = songList.filter(song => song.popularity > 100000)
-      }
-    }
-    else{
-      const albums = categoryFilter.songs1
-      for(var albumName of albums){
-        for(var songName in categoryAlbums[albumName].songs){
-          if(!game.playedSongs.includes(client.stringClean(categoryAlbums[albumName].songs[songName].title))){
-            songList.push(categoryAlbums[albumName].songs[songName])
-          }
+        if(tagEnabled && tagInfo.guessAlbum != null) {
+          guessAlbum = true; 
         }
       }
     }
-    return songList
+    let filterAlbumNames = Object.values(categoryFilter.albums).flat(1);
+    
+    
+    for(var albumName of filterAlbumNames){
+      if(!albumNames.includes(albumName)) {console.log(albumName+" not in albums"); continue;}
+
+      const [filterAlbum, multiAlbum] = client.getCategoryAlbum(category, albumName, true);
+      const songs = filterAlbum.songs
+    
+      let filterPop = client.config.filterPopularity;
+      
+      if(filterAlbum.songStats != null && filterAlbum.songStats.pop != null) {
+        const songStats = filterAlbum.songStats
+        let size25 = Math.floor((songStats.maxPop - songStats.minPop)/4)  // size of a 25% segmemnt
+        filterPop = songStats.meanPop + size25;
+      }
+      
+      for(var songKey in songs){
+        var currentSong = songs[songKey]
+
+        if(!multiAlbum && categoryFilter.popular.status && currentSong.popularity <= filterPop){continue;}
+        
+        if(!multiAlbum && (filterTags != null || ignoreTags != null)) {
+          if(currentSong.tags == null && filterTags.length > 0) {continue;}
+          if(currentSong.tags != null && !currentSong.tags.every(tag => filterTags.includes(tag) || ignoreTags.includes(tag))) {continue;}
+        }
+        if(!categoryFilter.instrumental.status && currentSong.instrumental){ continue; }
+
+        if(multiAlbum) currentSong.parentName = albumName
+        else           currentSong.albumName = albumName
+
+        let title = (guessAlbum || multiAlbum) ? currentSong.albumName : currentSong.title
+
+        if(playedSongs.includes(client.stringClean(title))){continue;}
+
+        songList.push(currentSong)
+      }
+    }
+    //console.log(playedSongs);
+    return [songList, guessAlbum]
   }
 
   // Main Game-
   client.gameStartRound =  async (guildId, channel) => {
     const game = client.games.get(guildId)
-    const songs = client.gameFilteredSongs(guildId)
+
+    let [songs, guessAlbum] = client.gameFilteredSongs(game.categoryInfo, game.playedSongs)
+    if(songs.length == 0) {game.playedSongs = []; [songs, guessAlbum] = client.gameFilteredSongs(game.categoryInfo, [])}
+    //console.log(songs.map(song => song.albumName));
     const songData = songs[Math.floor(Math.random()*songs.length)];  // picks a random song
 
-
+    game.settings.guessAlbum = guessAlbum
     game.currentSong = songData
-    game.currentSongName = client.stringClean(songData.title)
-    console.log(songData.fullTitle)
-    game.playedSongs.push(game.currentSongName)
+    const songNames = client.stringClean(game.settings.guessAlbum ? songData.albumName : songData.title, {multipleOptions: true});
+    game.currentSongName = songNames[0]
+    game.currentSongNames = songNames.map(name => name.replace(/[^a-zA-Z ]/g, ''))
+
+    console.log(game.currentSongName)
+    game.playedSongs.push(songNames[0]);
     game.status = client.gameStatus.PLAYING
     game.songStartTimestamp = Date.now()
 
@@ -360,23 +446,22 @@ module.exports = (client) => {
       game.messages[0].edit({embeds: [client.gameMainRoundEmbed(guildId)]});
       game.messages[1].edit({embeds: [client.gamePlayersEmbed(guildId)]});
     }
-    var musicMisc = null;
 
     // Play music
-    if(songData.youtubeLink != undefined){
-      musicMisc = await client.playYTMusic(game.connection, songData.youtubeLink, 20)
-    }
-    if(musicMisc == null && songData.appleLink != undefined){
-      musicMisc = await client.playAppleMusic(game.connection, songData.appleLink)
-    } 
-    if(musicMisc == null && songData.mediaUrl != undefined){
-      musicMisc = client.playMusic(game.connection, [songData.mediaUrl.youtube, songData.mediaUrl.apple])
-    } 
-    if (musicMisc == null){
-      console.log("Song without a link: "+songData.fullTitle);
+    if(songData.media != undefined && songData.media.youtube != undefined){
+      let seekS = 20;
+      if(songData.duration - seekS < game.settings["time_to_guess"]) {
+        seekS = 0;
+      }
+      if(songData.startS != null) {
+        console.log("Setting start to: "+songData.startS);
+        seekS = songData.startS;
+      }
+      game.musicMisc.resource = await client.playYTMusic(game.musicMisc.player, songData.media.youtube, seekS)
+    } else {
+      console.log("Song without a link: "+songData.title);
       return client.gameStartRound(guildId, channel);
     }
-    game.musicMisc = musicMisc
     client.games.set(guildId, game)
     client.gameRoundTimer(guildId)
   }
@@ -392,7 +477,7 @@ module.exports = (client) => {
         currentRow = ""
       }
       if(hidden){
-        currentRow += word.replace(/[a-zA-Z]/g, '\_\ ') + "  "
+        currentRow += word.replace(/[a-zA-Z0-9]/g, '\_\ ') + "  "
       }else{
         currentRow += word + "  "
       }
@@ -416,10 +501,13 @@ module.exports = (client) => {
         title: `🎵\ \ Song ${game.currentRoundNum+1} of ${game.settings.number_of_songs}`,
         description: "```"+rows.join("\n")+"```",
         color: 3066993,
-        thumbnail: {url: client.gameCategories[game.categoryInfo.name].albums[game.currentSong.albumName].imageUrl}
+        thumbnail: {url: game.currentSong.media.thumbnail}
       }
-      if(game.currentSong.geniusLink != null) {
-        embed.description += "\n[Lyrics]("+game.currentSong.geniusLink+")"
+      if(game.currentSong.media.genius != null) {
+        embed.description += "\n[Lyrics]("+game.currentSong.media.genius+")    "
+      }
+      if(game.currentSongNames.length > 1) {
+        embed.description += "or: `"+game.currentSongNames.splice(1).join("` \/ `")+"`"
       }
     }
     return embed
@@ -431,14 +519,6 @@ module.exports = (client) => {
       const playerData = game.players[playerId]
       var emoji = "❔"
       if(playerData.status.success){emoji = "✅"}
-      else if(playerData.lastGuess.content != undefined){
-        if(Date.now()-playerData.lastGuess.timestamp > 500){
-          playerData.lastGuess = undefined
-        }
-        else{
-          emoji = "❌"
-        }
-      }
       rows.push(emoji + "ㅤㅤ`"+(playerData.username.padEnd(15)+"`")+"ㅤㅤ"+playerData.points)
     }
     var embed = {
@@ -484,7 +564,7 @@ module.exports = (client) => {
     var oldRoundMsg = game.messages[0];
     setTimeout(() => {
       if(game.messages.length < 2){return}
-      client.fadeMusic(game.musicMisc, 1500)
+      client.fadeMusic(game.musicMisc, 2000)
     }, 3000)
     setTimeout(() => {
       if(game.messages.length < 2){return}
@@ -496,7 +576,7 @@ module.exports = (client) => {
       client.games.set(guildId, game)
       if(game.currentRoundNum == game.settings["number_of_songs"]){
         const playlistButton = new Button("Edit Playlist", "catLast", 1)
-        const currentNum = client.gameFilteredSongNum(guildId)
+        const currentNum = client.gameFilteredSongNum(game.categoryInfo)
         var suffix = ""
         if(currentNum > 0){ suffix = ` (${currentNum} songs)` }
         const startButton = new Button("Play Again"+suffix, "Start", 1, "▶️")
@@ -515,10 +595,9 @@ module.exports = (client) => {
     const game = client.games.get(guildId)
     const members = game.voiceChannel.members
     for(const member of members){
-      if(!game.players.hasOwnProperty(member[0]) && member[0] != '1021738451390963734'){
+      if(!game.players.hasOwnProperty(member[0]) && member[0] != client.config.clientID){
         game.players[member[0]] = {
           username: member[1].user.username,
-          lastGuess: {},  // {content: "", timestamp: }
           status: {success: false, successTime: undefined}, // , timestamp:
           points: 0
         }
@@ -530,9 +609,8 @@ module.exports = (client) => {
     const game = client.games.get(guildId)
     const members = game.voiceChannel.members
     for(const member of members){
-      if(member[0] != '1021738451390963734'){
+      if(member[0] != client.config.clientID){
         game.players[member[0]].status = {success: false}
-        game.players[member[0]].lastGuess = {}
       }
     }
     client.games.set(guildId, game)
@@ -560,9 +638,6 @@ module.exports = (client) => {
       client.gameEndRound(guildId)
     }
     client.games.set(guildId, game)
-  }
-  client.playerIncorrect = (guildId, userId, content, timestamp) => {
-    const game = client.games.get(guildId)
   }
   client.gameFinalEmbed = (guildId) =>  {
     const game = client.games.get(guildId)
@@ -609,7 +684,6 @@ module.exports = (client) => {
     PLAYSTOP: "PlayingStopped",
     END: "End"
   }
-
   client.gameStatusSet = (guildId, status) => {
     var game = client.games.get(guildId)
     if(!game){
@@ -672,14 +746,3 @@ module.exports = (client) => {
     }
   }
 }
-
-
-// Game Songs \\
-//Pokemon
-//Hollow Knight
-//Mario
-//Zelda
-//Persona 5
-//Undertale
-//Minecraft
-//-----------\\

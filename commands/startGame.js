@@ -26,15 +26,17 @@ module.exports = {
 		game = {
 			voiceChannel: voiceChannel,
 			connection: null,
+			musicMisc: {},
 			status: client.gameStatus.JOIN,
 			messages: [],
 			mainUser: interaction.user,
 			settings: {},
-			categoryInfo: {},
+			categoryInfo: {"albums": {}},
 			currentRoundNum: 0,
 			currentSong: {},
 			songStartTimestamp: 0,
 			currentSongName: "",
+			currentSongNames: [],
 			playedSongs: [],
 			players: {}
 		};
@@ -50,6 +52,7 @@ module.exports = {
 				return client.basicReply(interaction, true, "Unable to join voice channel", "error");
 			}
 			game.connection = connection;
+			game.musicMisc.player = client.playSetup(connection);
 			game.status = client.gameStatus.SETUP;
 			client.games.set(interaction.guildId, game);
 			client.gameDefaultSelect(interaction);

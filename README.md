@@ -1,6 +1,9 @@
-#  Discord Music Guesser Bot: PDP Project
+#  Discord Music Guesser Bot
 
 The bot plays a music guessing game in voice channels, playing short snippets of music and giving points based on who guesses first.
+
+The song list is stored in [categories.json](categories.json) and is generated from Youtube playlists.
+The playlist is accompanied by some settings dictating how the title, artist, etc will be extracted and the bot automatically populates the song list from this.  
 
 ## Main Services/Sources Used
 - [Discord.js](https://discord.js.org/#/) - Interface with Discord 

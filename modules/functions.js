@@ -135,50 +135,22 @@ module.exports = (client) => {
   let ytRepeats = 0;
   let ytLastError = "";
 
-  client.playYTMusic = (connection, url, seekS) => {
+  client.playYTMusic = (player, url, seekS) => {
     console.log("Playing YT video");
     
-    var lastError = ""
-    var stream = null
-
-    stream = ytdl(url, { highWaterMark: 1024 * 1024, filter: "audioonly" })
+    var stream = ytdl(url, { highWaterMark: 1024 * 1024, filter: "audioonly" })
     
     const editedStream = fluentFfmpeg({source: stream}).toFormat('mp3').setStartTime(seekS)
-    const player = createAudioPlayer()
+    //const player = createAudioPlayer()
     const resource = createAudioResource(editedStream, {inlineVolume: true})
-    const subscription = connection.subscribe(player)
-    return new Promise((resolve) => {
-      player.on("error", async error => {
-        let repeatErrors = ["Error: Input stream error: getaddrinfo EAI_AGAIN www.youtube.com"];
-        if(repeatErrors.includes(error.toString()) && repeats < 5) {
-          if(ytLastError == error.toString()) {
-            ytRepeats++;
-          } else {
-            ytRepeats = 1;
-            ytLastError = error.toString()
-          }
-          var finalResult = await client.playYTMusic()
-          resolve(finalResult);
-        } else {
-          console.log("YT Music Player error: "+error.toString())
-          player.stop()
-          await subscription.unsubscribe()
-          resolve(null);
-        }
-      })
-      player.on(AudioPlayerStatus.Playing, () => {
-        resolve({player: player, resource: resource});
-      })
-      player.play(resource)
-    })
-
+    //const subscription = connection.subscribe(player)
+    player.play(resource)
+    return resource;
   }
-  client.playAppleMusic = async (connection, url) => {
+  client.playAppleMusic = async (player, url) => {  // unused
     console.log("Playing apple music");
-    const player = createAudioPlayer()
     const editedStream = fluentFfmpeg().input(url).toFormat('mp3')
     const resource = createAudioResource(editedStream, {inlineVolume: true})
-    connection.subscribe(player)
     return new Promise((resolve) => {
       player.on("error", error => {
         console.log("Apple Music Player error: "+error.toString())
@@ -190,7 +162,16 @@ module.exports = (client) => {
       player.play(resource)
     })
   }
-  client.playMusic = async (connection, urls) => {
+  client.playSetup = (connection) => {
+    const player = createAudioPlayer()
+    connection.subscribe(player)
+    player.on("error", async error => {
+      console.log("YT Music Player error: "+error.toString())
+      player.pause()
+    })
+    return player;
+  }
+  client.playMusic = async (player, urls) => {  // unused
     for(let i=0; i<urls.length; i++){
       currentUrl = urls[i]
       console.log(currentUrl);
@@ -198,14 +179,12 @@ module.exports = (client) => {
         continue
       }
       if(currentUrl.startsWith("https://audio-ssl.itunes.apple.com/")){ 
-        console.log("trying apple");
-        response = await client.playAppleMusic(connection, currentUrl)
+        response = await client.playAppleMusic(player, currentUrl)
         if(response != null){
           return response
         }
       } else if(currentUrl.includes("www.youtube.com/watch?v=")){
-        console.log("trying youtube");
-        response = await client.playYTMusic(connection, currentUrl, 20)
+        response = await client.playYTMusic(player, currentUrl, 20)
         if(response != null){
           return response
         }
@@ -214,41 +193,52 @@ module.exports = (client) => {
     console.log("Unable to find valid link: "+urls)
     return null
   }
-  client.stopMusic = (musicMsc) => {
-    if(musicMsc.player != null){
-      return musicMsc.player.stop()
+  client.stopMusic = (player) => {
+    if(player != null){
+      return player.pause()
     } else {
       console.log("Stopping null player");
     }
     return
   }
   client.fadeMusic = async (musicMisc, durationMs) => {
-    const steps = 10
-    const startVolume = 1
+    const steps = 15
     var currentVolume = 1
     for(var i=0; i<steps; i++){
-      currentVolume -= Math.round((startVolume/steps)*100)/100
-      client.changeVolumeMusic(musicMisc, currentVolume)
+      currentVolume *= 0.8 //Math.exp(-(1/2)*i).toFixed(2)//(currentVolume - Math.pow(0.1, steps)).toFixed(2);
+      client.changeVolumeMusic(musicMisc.resource, currentVolume)
       await delay(durationMs/steps)
     }
-    return client.stopMusic(musicMisc)
+    return client.stopMusic(musicMisc.player)
   }
-  client.changeVolumeMusic = (musicMisc, newValue) => {
-    if(!musicMisc || !musicMisc.resource || !musicMisc.resource.volume){return}
-    musicMisc.resource.volume.setVolume(newValue)
+  client.changeVolumeMusic = (resource, newValue) => {
+    if(!resource || !resource.volume){return}
+    resource.volume.setVolume(newValue)
   }
 
-  client.getLyrics = async (title, artist = " ") => {
+  client.getGenius = async (title, artists = [], partialTitle = false) => {
+    let normalisedArtists = artists.map(x => normaliseText(x));
     //console.log("Lyrics for "+title)
-    const searches = await geniusClient.songs.search(title);
-    const firstSong = searches[0];
-
-    if(normaliseText(firstSong.title) != normaliseText(title)) { return null; }
-    if(artist != " " && normaliseText(firstSong.artist.name) != normaliseText(artist)) { return null; }
-
-    return await firstSong.lyrics();
+    let results;
+    try{
+      results = await geniusClient.songs.search(title);
+    } catch(err) {
+      return {};
+    }
+    for (let song of results) {
+      if(partialTitle  && !normaliseText(song.title).includes(normaliseText(title))) { continue; }
+      if(!partialTitle && normaliseText(song.title) != normaliseText(title)) {continue;}
+      //if(artists.length > 0 && !normalisedArtists.includes(normaliseText(song.artist.name))) { continue; }
+      if(artists.length > 0 && !normalisedArtists.some(artist => normaliseText(song.artist.name).includes(normaliseText(artist)))) { continue; }
+      let lyrics = null
+      try{
+        lyrics = await song.lyrics()
+      } catch(err) {}
+      let artistNames = song._raw.artist_names ?? song.artist.name
+      return {lyrics: lyrics, artist: artistNames, url: song.url};
+    }
+    return {};
   }
-
   function normaliseText(text) {
     return text.replace(/[^0-9a-z]/gi, '').toLowerCase();
   }

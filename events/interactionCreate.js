@@ -28,7 +28,7 @@ async function selectMenuCommand(client, interaction) {
     client.gameCategoryOptions(interaction)
   }
   else if(interaction.customId.startsWith("Cat")){
-    client.gameCategoryInfoSet(interaction.guildId, interaction.customId.slice(3), interaction.values)
+    client.gameCategoryInfoSetAlbum(interaction.guildId, interaction.customId.slice(3), interaction.values)
     var components = client.gameCategoryComponents(interaction.guildId)
     interaction.update({components: components})
   }
@@ -46,7 +46,16 @@ async function buttonCommand(client, interaction) {
     // Get original components:
     var components = []
     if(interaction.customId.startsWith("cat")){
-      client.gameCategoryInfoSet(interaction.guildId, interaction.customId.slice(3, -1), newValue)
+      const tagId = interaction.customId.slice(3, -1)
+      client.gameCategoryInfoSet(interaction.guildId, tagId, newValue)
+      const category = client.categories[client.games.get(interaction.guildId).categoryInfo.name];
+      let tagInfo = category.tags[tagId];
+      if(tagInfo != null) {
+        if(tagInfo.force != null) {
+          let dict = Object.fromEntries(Object.entries(tagInfo.force).map(([k,v]) => [k,{"status": v, "disabled": newValue}]))
+          client.gameCategoryInfoSetMulti(interaction.guildId, dict)
+        }
+      }
       //console.log("Changed "+interaction.customId.slice(3, -1)+" to "+newValue)
       components = client.gameCategoryComponents(interaction.guildId)
     }
@@ -65,8 +74,20 @@ async function buttonCommand(client, interaction) {
     components = client.gameCategoryComponents(interaction.guildId)
     await interaction.reply({components: components});
   } else if(interaction.customId.startsWith("catPreset")){
-    category = client.gameCategories[client.games.get(interaction.guildId).categoryInfo.name]
-    client.gameCategoryInfoSetMulti(interaction.guildId, category.optionsPresets[interaction.customId.slice(9)].categoryInfo)
+    const category = client.categories[client.games.get(interaction.guildId).categoryInfo.name];
+    switch(interaction.customId.slice(9)){
+      case "Default":
+        if(category.defaults != null) {
+          client.gameCategoryInfoSetMulti(interaction.guildId, category.defaults)
+        } else {
+          client.gameCategoryInfoSetDefault(interaction.guildId, category.tags);
+        }
+        break;
+      case "All":
+        client.gameCategoryInfoSetAllAlbums(interaction.guildId, client.albumNames(category))
+        break;
+    }
+    
     components = client.gameCategoryComponents(interaction.guildId)
     await interaction.update({components: components});
   }

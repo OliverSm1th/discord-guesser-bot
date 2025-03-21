@@ -17,30 +17,24 @@ module.exports = {
 		if(game == null){return client.basicReply(interaction, true, "There is no game taking place, start one using `/startGame`", "info")}
 		if(game.status != client.gameStatus.PLAYING){return client.basicReply(interaction, true, "There is no music playing", "info")}
 
-		let guessText = client.stringClean(interaction.options.get('name').value).replace(/[^a-zA-Z ]/g, '')
+		const guessText = client.stringClean(interaction.options.get('name').value).replace(/[^a-zA-Z ]/g, '')
 
-		if(guessText == game.currentSongName.replace(/[^a-zA-Z ]/g, '')){
-			const album = client.gameCategories[game.categoryInfo.name].albums[game.currentSong.albumName]
+		if(game.currentSongNames.includes(guessText)){
 			var url = null;
-			if("youtubeLink" in game.currentSong){
-				url = game.currentSong.youtubeLink
-			}else if("mediaUrl" in game.currentSong){
-				if("youtube" in game.currentSong.mediaUrl){
-					url = game.currentSong.mediaUrl.youtube
-				} else{
-					url = game.currentSong.mediaUrl.apple
-				}
-			}else if("geniusLink" in game.currentSong){
-				url = game.currentSong.geniusLink
-			}
-			var artistString = ""
-			if("artistInfo" in game.currentSong){
-				artistString = game.currentSong.artistInfo
-			} else{
-				artistString = "by" +album.artist.name
+
+			if(game.currentSong.media.genius != null){
+				url = game.currentSong.media.genius
+			} else if(game.currentSong.media.youtube != null){
+				url = game.currentSong.media.youtube
 			}
 
-			var description = "["+game.currentSong.title+"]("+url+")\n"+artistString
+			let title = game.currentSong.title ?? game.currentSong.albumName
+			var description = "["+title+"]("+url+")"
+
+			if(game.currentSong.artist != null){
+				description += "\nby "+game.currentSong.artist
+			}
+
 			var tags = []
 			for(var tagName in game.currentSong.tags){
 				tags.push(game.currentSong.tags[tagName].toLowerCase())
@@ -48,14 +42,18 @@ module.exports = {
 			if(tags.length > 0){
 				description += " **("+tags.join(", ")+")**"
 			}
+			if(game.currentSong.albumName != null) {
+				let parentName = game.currentSong.parentName ?? game.currentSong.albumName;
+				description += "\nfrom "+parentName.split("/")[0];
+			}
 
 			var fields = []
-			if(game.currentSong.fact != null && game.currentSong.fact != "null"){
+			if(game.currentSong.fact != null){   // Fact: leftover from genius, might remove
 				var fact = game.currentSong.fact
 				if(fact.length > 200){
 					fact = fact.slice(0, 200)+"..."
-					if(game.currentSong.geniusLink != null) {
-						fact += "ㅤ[(more)]("+game.currentSong.geniusLink+")"
+					if(game.currentSong.media.genius != null) {
+						fact += "ㅤ[(more)]("+game.currentSong.media.genius+")"
 					}
 				}
 				description += "\n\n**Fact:** " +fact
@@ -65,7 +63,7 @@ module.exports = {
 				title: "✅ㅤCorrect",
 				description:description,
 				color: 3066993,
-				thumbnail: {url: album.imageUrl},
+				thumbnail: {url: game.currentSong.media.thumbnail},
 				fields: fields,
 			}
 			client.playerCorrect(interaction.guildId, interaction.user.id)
